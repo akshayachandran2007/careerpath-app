@@ -1,27 +1,49 @@
 import express from "express";
+import jwt from "jsonwebtoken";
 import { pool } from "../db.js";
 
 const router = express.Router();
 
-// Get student profile
-router.get("/:userId", async (req, res) => {
-  try {
-    const { userId } = req.params;
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(" ")[1];
 
+  if (!token) {
+    return res.status(401).json({
+      message: "Access token required"
+    });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({
+        message: "Invalid or expired token"
+      });
+    }
+
+    req.user = user;
+    next();
+  });
+}
+
+// Get profile
+router.get("/", authenticateToken, async (req, res) => {
+  try {
     const result = await pool.query(
       `SELECT id, name, email, branch, year, district, domain, cgpa
        FROM users
        WHERE id = $1`,
-      [userId]
+      [req.user.id]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
-        message: "Student not found"
+        message: "User not found"
       });
     }
 
     res.json(result.rows[0]);
+
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -30,11 +52,17 @@ router.get("/:userId", async (req, res) => {
   }
 });
 
-// Update student profile
-router.put("/:userId", async (req, res) => {
+// Update profile
+router.put("/", authenticateToken, async (req, res) => {
   try {
-    const { userId } = req.params;
-    const { name, branch, year, district, domain, cgpa } = req.body;
+    const {
+      name,
+      branch,
+      year,
+      district,
+      domain,
+      cgpa
+    } = req.body;
 
     const result = await pool.query(
       `UPDATE users
@@ -46,16 +74,28 @@ router.put("/:userId", async (req, res) => {
            cgpa = $6
        WHERE id = $7
        RETURNING id, name, email, branch, year, district, domain, cgpa`,
-      [name, branch, year, district, domain, cgpa, userId]
+      [
+        name,
+        branch,
+        year,
+        district,
+        domain,
+        cgpa,
+        req.user.id
+      ]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
-        message: "Student not found"
+        message: "User not found"
       });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      message: "Profile updated successfully",
+      user: result.rows[0]
+    });
+
   } catch (error) {
     console.error(error);
     res.status(500).json({
